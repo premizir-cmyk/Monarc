@@ -10,7 +10,8 @@ from datetime import datetime, timedelta, timezone
 from telebot import types
 
 # --- ОСНОВНЫЕ НАСТРОЙКИ КЛИЕНТА ---
-TOKEN = '8898914668:AAEXJx5exYqF4fctUeGe3uSkHOwGHb9-Ar4'
+TOKEN = '8898914668:AAFMK24Vl4UwhbLQv-j0RI6-AcdLbN_UXTI'
+
 # Канал для публикаций
 CHANNELS = ['-1003934124856']
 PRIMARY_CHANNEL = CHANNELS[0]
@@ -79,6 +80,21 @@ def is_work_time():
         return True
     return False
 
+def get_user_display_name(user_id):
+    """Пытается получить актуальный юзернейм или имя через Telegram API или из базы"""
+    try:
+        chat_member = bot.get_chat(user_id)
+        if chat_member.username:
+            return f"@{chat_member.username}"
+        first = chat_member.first_name or ""
+        last = chat_member.last_name or ""
+        full_name = f"{first} {last}".strip()
+        if full_name:
+            return f"{full_name}"
+    except Exception:
+        pass
+    return "Неизвестно"
+
 def is_user_active(user_id):
     if is_owner(user_id):
         return True
@@ -104,10 +120,14 @@ def notify_expired(user_id):
         start_date = user_info.get("start_date", "Неизвестно")
         exp_date = datetime.fromtimestamp(user_info.get("expire", 0), MSK).strftime('%d.%m.%Y %H:%M')
         
+        # Получаем актуальный юзернейм/имя перед удалением
+        username_display = get_user_display_name(int(str_id))
+
         history = load_data(ADMIN_HISTORY_FILE)
         if not isinstance(history, list): history = []
         history.append({
             "user_id": str_id,
+            "username": username_display,
             "start_date": start_date,
             "end_date": exp_date
         })
@@ -118,7 +138,7 @@ def notify_expired(user_id):
         
         for owner in OWNER_ID:
             try:
-                bot.send_message(owner, f"⚠️ У пользователя `{str_id}` закончились права админа!", parse_mode="Markdown")
+                bot.send_message(owner, f"⚠️ У пользователя `{str_id}` ({username_display}) закончились права админа!", parse_mode="Markdown")
             except:
                 pass
 
@@ -306,7 +326,6 @@ def callback_handler(call):
         )
 
         try:
-            # ОБНОВЛЕННЫЙ ТЕКСТ ДЛЯ ПЕРЕХОДА
             auto_msg = f"Здравствуйте! Я из канала MONARCH я хочу взять у вас задание ({platform}) за ({payment})руб!"
             encoded_text = urllib.parse.quote(auto_msg)
             direct_url = f"https://t.me/{call.from_user.username}?text={encoded_text}" if call.from_user.username else f"tg://user?id={user_id}"
@@ -380,7 +399,8 @@ def callback_handler(call):
         for uid, uinfo in users.items():
             exp_str = datetime.fromtimestamp(uinfo.get("expire", 0), MSK).strftime('%d.%m.%Y %H:%M')
             start_str = uinfo.get("start_date", "Неизвестно")
-            text += f"• ID: `{uid}` | С: `{start_str}` | До: `{exp_str}`\n"
+            uname = get_user_display_name(int(uid))
+            text += f"• `{uid}` ({uname}) | С: `{start_str}` | До: `{exp_str}`\n"
         bot.send_message(call.message.chat.id, text, parse_mode="Markdown")
 
     elif call.data == "admin_list_history":
@@ -392,7 +412,11 @@ def callback_handler(call):
 
         text = "📜 **История всех прошлых админов:**\n\n"
         for item in history[-15:]:
-            text += f"• ID: `{item['user_id']}` | С: `{item['start_date']}` | До: `{item['end_date']}`\n"
+            u_id = item.get('user_id', 'Неизвестно')
+            u_name = item.get('username', get_user_display_name(int(u_id)) if str(u_id).isdigit() else 'Неизвестно')
+            start_str = item.get('start_date', 'Неизвестно')
+            end_str = item.get('end_date', 'Неизвестно')
+            text += f"• `{u_id}` ({u_name}) | С: `{start_str}` | До: `{end_str}`\n"
         bot.send_message(call.message.chat.id, text, parse_mode="Markdown")
 
     elif call.data == "admin_revoke":
@@ -485,7 +509,8 @@ def text_handler(message):
             }
             save_data(DB_FILE, users)
 
-            bot.reply_to(message, f"🎉 **Права админа для `{target_id}` успешно выданы на {days} дн.!**", parse_mode="Markdown")
+            target_uname = get_user_display_name(int(target_id))
+            bot.reply_to(message, f"🎉 **Права админа для `{target_id}` ({target_uname}) успешно выданы на {days} дн.!**", parse_mode="Markdown")
             try:
                 bot.send_message(int(target_id), f"🎉 **Вам выданы права админа (на {days} дн.)!**\nНажмите /start для работы.", reply_markup=get_persistent_keyboard())
             except:
@@ -497,8 +522,26 @@ def text_handler(message):
             target_id = message.text.strip()
             users = load_data(DB_FILE)
             if target_id in users:
-                notify_expired(target_id)
-                bot.reply_to(message, f"✅ Права у `{target_id}` забраны.", parse_mode="Markdown")
+                # Сохраняем в историю перед удалением вручную
+                user_info = users[target_id]
+                start_date = user_info.get("start_date", "Неизвестно")
+                exp_date = datetime.fromtimestamp(user_info.get("expire", 0), MSK).strftime('%d.%m.%Y %H:%M')
+                uname = get_user_display_name(int(target_id))
+
+                history = load_data(ADMIN_HISTORY_FILE)
+                if not isinstance(history, list): history = []
+                history.append({
+                    "user_id": target_id,
+                    "username": uname,
+                    "start_date": start_date,
+                    "end_date": exp_date
+                })
+                save_data(ADMIN_HISTORY_FILE, history)
+
+                del users[target_id]
+                save_data(DB_FILE, users)
+
+                bot.reply_to(message, f"✅ Права у `{target_id}` ({uname}) забраны и внесены в историю.", parse_mode="Markdown")
             else:
                 bot.reply_to(message, "⚠️ Этот ID не найден в активных админах.")
             del admin_action_data[user_id]
