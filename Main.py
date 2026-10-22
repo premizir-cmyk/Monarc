@@ -10,8 +10,7 @@ from datetime import datetime, timedelta, timezone
 from telebot import types
 
 # --- ОСНОВНЫЕ НАСТРОЙКИ КЛИЕНТА ---
-TOKEN = '8898914668:AAFMK24Vl4UwhbLQv-j0RI6-AcdLbN_UXTI'
-
+TOKEN = '8898914668:AAEXJx5exYqF4fctUeGe3uSkHOwGHb9-Ar4'
 # Канал для публикаций
 CHANNELS = ['-1003934124856']
 PRIMARY_CHANNEL = CHANNELS[0]
