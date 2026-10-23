@@ -153,6 +153,35 @@ def contains_contacts(text):
         return True
     return False
 
+# --- ФОНОВЫЙ ПОТОК ДЛЯ СТАТУСА КАНАЛА (УТРО / НОЧЬ) ---
+def channel_schedule_loop():
+    last_sent_action = None
+    while True:
+        try:
+            now = datetime.now(MSK)
+            hour = now.hour
+            minute = now.minute
+
+            # Ровно в 04:00 (проверяем диапазон минут 0-1)
+            if hour == 4 and minute == 0:
+                if last_sent_action != "morning":
+                    bot.send_message(PRIMARY_CHANNEL, "☀️ **Доброе утро! Канал проснулся!**", parse_mode="Markdown")
+                    last_sent_action = "morning"
+            # Ровно в 23:45
+            elif hour == 23 and minute == 45:
+                if last_sent_action != "night":
+                    bot.send_message(PRIMARY_CHANNEL, "🌙 **Канал уходит спать, доброй ночи!**", parse_mode="Markdown")
+                    last_sent_action = "night"
+            else:
+                # Сбрасываем флаг в течение дня, чтобы на следующий день сработало снова
+                if hour == 5:
+                    last_sent_action = None
+
+        except Exception as e:
+            print(f"[LOG] Ошибка в фоновом потоке расписания канала: {e}", flush=True)
+        
+        time.sleep(30) # Проверяем каждые 30 секунд
+
 # --- ПРОВЕРКА КУЛДАУНОВ ---
 
 def get_cooldown_status(user_id, platform_name):
@@ -604,6 +633,10 @@ def text_handler(message):
             bot.reply_to(message, f"👁 **ПРЕДПРОСМОТР ПОСТА:**\n\n{preview_text}\n\nВсё верно?", reply_markup=markup)
 
 if __name__ == '__main__':
+    # Запускаем фоновый поток для утренних/ночных сообщений в канал
+    schedule_thread = threading.Thread(target=channel_schedule_loop, daemon=True)
+    schedule_thread.start()
+
     print("🚀 Бот полностью готов и запущен!", flush=True)
     while True:
         try:
